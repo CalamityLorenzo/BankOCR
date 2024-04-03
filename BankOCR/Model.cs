@@ -10,6 +10,5 @@
         public string Right { get; } = " |";
         public string HoleyBucket{ get; } = "| |";
         public string Empty { get; } = "  ";
-
     }
 }
