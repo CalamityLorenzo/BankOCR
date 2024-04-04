@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 namespace BankOCR
@@ -91,48 +92,83 @@ namespace BankOCR
         /// Each digit is comprised of 3 portions of the string 0-27-54 3 characters long.
         /// The use of spans is to avoid the multiple allocations of strings (This should yield 1 per key vs 4). 
         /// </summary>
-        /// <param name="accountDigits"></param>
+        /// <param name="accountOcr"></param>
         /// <returns></returns>
-        public string TranslatedAccountNumber(string accountDigits)
+        public AccountNumber TranslateOcrAccountNumber(string accountOcr)
         {
-            if (String.IsNullOrEmpty(accountDigits)) { throw new ArgumentNullException("Account digits must be provided."); }
+            if (String.IsNullOrEmpty(accountOcr)) { throw new ArgumentNullException("Account digits must be provided."); }
 
-            if (accountDigits.Length != 27 * 3) { throw new ArgumentOutOfRangeException("Account digits are the incorrect length"); }
+            if (accountOcr.Length != 27 * 3) { throw new ArgumentOutOfRangeException("Account digits are the incorrect length"); }
 
             StringBuilder accountNumber = new StringBuilder();
+            // we store each original digit along with the account info
+            // for error correction purposes.
+            var ocrDigits = new List<string>();
             for (var x = 0; x < 9; x++)
             {
-                var digitKey = string.Create(9, accountDigits, (buffer, value) =>
+                var digitKey = string.Create(9, accountOcr, (buffer, value) =>
                 {
-                    var accountSpan = accountDigits.AsSpan();
+                    var accountSpan = accountOcr.AsSpan();
                     accountSpan.Slice((x * 3) + 0, 3).CopyTo(buffer);
                     accountSpan.Slice((x * 3) + 27, 3).CopyTo(buffer.Slice(3, 3));
                     accountSpan.Slice((x * 3) + 54, 3).CopyTo(buffer.Slice(6, 3));
                 });
-
+                ocrDigits.Add(digitKey);
                 accountNumber.Append(this.LookupNumber(digitKey));
             }
 
-            return accountNumber.ToString();
+            return new AccountNumber(accountNumber.ToString(), ocrDigits);
         }
-        
-        public void WriteValidateAccounts(IEnumerable<String> accountNumbers, string filename)
+
+        public void ValidateAccountsToFile(IEnumerable<AccountNumber> accountNumbers, string filename)
         {
             if (string.IsNullOrEmpty(filename))
                 throw new ArgumentNullException($"Filename cannot be null");
             var result = new List<AccountStatus>();
-            foreach(var accountNumber in accountNumbers)
+            foreach (var accountNumber in accountNumbers)
             {
-                result.Add(new(accountNumber, !accountNumber.Contains("?"), AccountChecksum(accountNumber)));
+                result.Add(ValidateAccount(accountNumber));
             }
-            File.WriteAllLines(filename, result.Select(a=>a.ToString()));
+            File.WriteAllLines(filename, result.Select(a => a.ToString()));
         }
-        
-        public string ValidateAccount(string accountNumber)
+
+        /// <summary>
+        /// For an ILL number ?, pass in the original digit,.
+        /// And try and create a new number by changing one piece at a time,
+        /// </summary>
+        /// <param name="brokenDigit"></param>
+        /// <returns></returns>
+        public IEnumerable<(string number, string digit)> RepairDigit(string brokenDigit)
         {
-            AccountStatus ac = new(accountNumber, !accountNumber.Contains("?"), AccountChecksum(accountNumber));
-            return ac.ToString();
+            // This will weed out the duplicates for us.
+            var result = new HashSet<(string number, string digit)>();
+            var top = brokenDigit.Substring(0, 3);
+            var middle = brokenDigit.Substring(3, 3);
+            var bottom = brokenDigit.Substring(6, 3);
+
+            var topReplace = "   ";
+            // Top can only be on or off.
+            if (top == "   ")
+                topReplace = " _ ";
+
+            var topNumber = this.LookupNumber($"{topReplace}{middle}{bottom}");
+            if (topNumber != "?")
+                result.Add((topNumber, $"{topReplace}{middle}{bottom}"));
+
+            var midNumbers = DigitCombination(middle)
+                .Select(midReplaced => (this.LookupNumber($"{top}{midReplaced}{bottom}"), $"{top}{midReplaced}{bottom}"))
+                .Where(a => a.Item1 != "?").ToList();
+            var bottomNumbers = DigitCombination(bottom)
+                            .Select(bottomReplaced => (this.LookupNumber($"{top}{middle}{bottomReplaced}"), $"{top}{middle}{bottomReplaced}"))
+                            .Where(a => a.Item1 != "?").ToList();
+            midNumbers.ForEach(mid => result.Add(mid));
+            bottomNumbers.ForEach(top => result.Add(top));
+
+            return result;
         }
+
+        // Check to See if the number is illegible or the Checksum value is incorrect.
+        public AccountStatus ValidateAccount(AccountNumber accountNumber) => new(accountNumber, !accountNumber.Number.Contains("?"), ValidAccountChecksum(accountNumber.Number));
 
 
         /// <summary>
@@ -141,11 +177,11 @@ namespace BankOCR
         /// </summary>
         /// <param name="accountNumber"></param>
         /// <returns></returns>
-        public bool AccountChecksum(string accountNumber)
+        public bool ValidAccountChecksum(string accountNumber)
         {
             var reversedAccount = accountNumber.Reverse().ToArray();
             var result = AccountChecksumAccumulator(reversedAccount, 0);
-            return (result% 11) == 0;
+            return (result % 11) == 0;
         }
 
         // This could have also been a swtich statement.
@@ -159,7 +195,7 @@ namespace BankOCR
 
         // Recursive approach for funsies.
         // Multiplying the value by the posiition, and 
-        private int AccountChecksumAccumulator(char [] accountNumber, int position)
+        private int AccountChecksumAccumulator(char[] accountNumber, int position)
         {
             if (position < accountNumber.Length)
             {
@@ -171,6 +207,44 @@ namespace BankOCR
                 return total += AccountChecksumAccumulator(accountNumber, position + 1);
             }
             return 0;
+        }
+
+        /// <summary>
+        /// All the possible combinatins of 1 digit segments (while only altering one at a time)
+        /// </summary>
+        /// <param name="middle"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentOutOfRangeException"></exception>
+        private List<string> DigitCombination(string middle)
+        {
+            if (middle.Length != 3) throw new ArgumentOutOfRangeException("Length of digit segment in correct");
+
+            return new()
+            {
+                new string([middle[0] == '|' ? ' ' : '|', middle[1], middle[2]]),
+                new string([middle[0], middle[1] == '_' ? ' ' : '_', middle[2]]),
+                new string([middle[0], middle[1], middle[2] == '|' ? ' ' : '|']),
+                };
+        }
+
+        public void RepairAccount(AccountStatus accountStatus)
+        {
+            if (!accountStatus.isLegible)
+            {
+
+                var fixedNUmbers = new List<(string,string, int)>();
+                // Find the illegible numbers and their positions in the original
+                var accountNumChars = accountStatus.Accountnumber.Number.ToCharArray();
+                for (var x = 0; x < accountNumChars.Length; x++)
+                {
+                    if (accountNumChars[x] == '?')
+                    {
+                        var result = RepairDigit(accountStatus.Accountnumber.OcrDigits[x]);
+                        fixedNUmbers.AddRange(result.Select(a => (a.number, a.digit, x)).ToList()); ;
+                    }
+                }
+
+            }
         }
     };
 

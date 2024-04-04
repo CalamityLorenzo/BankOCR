@@ -26,10 +26,11 @@ namespace BankOCRTests
         public void ReadOCRDigits(string digitRow, string result)
         {
             OcrProcessor processor = new OcrProcessor();
-            var digits = processor.TranslatedAccountNumber(digitRow);
+            var digits = processor.TranslateOcrAccountNumber(digitRow);
 
-            Assert.IsTrue(digits == result);
+            Assert.IsTrue(digits.Number == result);
         }
+
         [DataTestMethod]
         [DataRow("345882865", true)]
         [DataRow("000000302", true)]
@@ -43,7 +44,7 @@ namespace BankOCRTests
         public void TestChecksum(string accountNumber, bool isSuccess)
         {
             OcrProcessor processor = new OcrProcessor();
-            var result = processor.AccountChecksum(accountNumber);
+            var result = processor.ValidAccountChecksum(accountNumber);
             Assert.IsTrue(isSuccess == result);
         }
 
@@ -58,12 +59,37 @@ namespace BankOCRTests
         [DataRow("88888?888", "88888?888 ILL")]
         [DataRow("490067715", "490067715 ERR")]
         [DataRow("012345678", "012345678 ERR")]
-        public void WritevalidatedAccountInfo(string accountNumber, string expected)
+        public void WritevalidatedAccountInfo(string accountNo, string expected)
         {
+            var accountNumber = new AccountNumber(accountNo, Enumerable.Empty<String>());
             OcrProcessor processor = new OcrProcessor();
             var result = processor.ValidateAccount(accountNumber)!;
-            Assert.IsTrue(result== expected);
+            Assert.IsTrue(result.ToString() == expected);
         }
 
+        [DataTestMethod]
+        [DataRow("    _|  |", "4,1")]
+        [DataRow(" _  _  _|", "5,3")]
+        [DataRow(" _ |_|  |", "4,9")]
+        [DataRow("    _||_ ", "2")]
+        [DataRow(" _ |_|| |", "8")]
+        public void RepairDigits(string ocrDigit, string result)
+        {
+
+            OcrProcessor processor = new OcrProcessor();
+            var items = processor.RepairDigit(ocrDigit);
+            var itemNumberString = String.Join(",", items.Select(a => a.number));
+            Assert.IsTrue(itemNumberString == result);
+        }
+        [DataTestMethod]
+        [DataRow("    _  _     _  _  _  _  _   | _| _||_||_ |_   ||_||_|  ||_  _|  | _||_|  ||_| _ ", "")]
+        public void ValidateAndRepairOcr(string ocrDigits, string result)
+        {
+            OcrProcessor processor = new OcrProcessor();
+            var accountNumber = processor.TranslateOcrAccountNumber(ocrDigits);
+            var accountStatus = processor.ValidateAccount(accountNumber);
+            processor.RepairAccount(accountStatus);
+
+        }
     }
 }
