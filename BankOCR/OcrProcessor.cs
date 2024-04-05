@@ -198,7 +198,7 @@ namespace BankOCR
         }
 
         // Recursive approach for funsies.
-        // Multiplying the value by the posiition, and 
+        // Multiplying the value by the posiition, the accountnumbers assumed to already be reversed
         private int AccountChecksumAccumulator(char[] accountNumber, int position)
         {
             if (position < accountNumber.Length)
@@ -221,7 +221,7 @@ namespace BankOCR
         /// <exception cref="ArgumentOutOfRangeException"></exception>
         private List<string> DigitCombination(string middle)
         {
-            if (middle.Length != 3) throw new ArgumentOutOfRangeException("Length of digit segment in correct");
+            if (middle.Length != 3) throw new ArgumentOutOfRangeException("Length of digit segment incorrect");
 
             return new()
             {
@@ -230,7 +230,12 @@ namespace BankOCR
                 new string([middle[0], middle[1], middle[2] == '|' ? ' ' : '|']),
                 };
         }
-
+        /// <summary>
+        /// Tries to fix up the account if there is an error
+        /// The methods are very similar but have kept them seperate becuase their context is different enought (illegible vs error)
+        /// </summary>
+        /// <param name="accountStatus"></param>
+        /// <returns></returns>
         public string RepairAccount(AccountStatus accountStatus)
         {
             if (!accountStatus.isLegible)
@@ -289,7 +294,7 @@ namespace BankOCR
                 return $"{accountNumber} AMB ['{String.Join("', '", validChecksums.Order())}']";
             }
         }
-
+        // Iterates over the possbile combinations for a repaired account number, and validates them against the checksum.
         private IEnumerable<String> RepairedValidation(AccountStatus account, IEnumerable<(string number, string ocrDigi)> repairedDigits, int digitIndex)
         {
             var validChecksums = new List<String>();

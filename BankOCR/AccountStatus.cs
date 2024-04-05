@@ -1,5 +1,6 @@
 ﻿namespace BankOCR
 {
+    // Basic processed account number and the original digits that define each number.
     public readonly record struct AccountNumber
     {
         public List<string> OcrDigits { get; } = new List<string>();
@@ -12,7 +13,8 @@
         }
 
     }
-
+    // Composite type to record the status of the account number.
+    // The ToString is used as the actual output
     public readonly record struct AccountStatus(AccountNumber Accountnumber, bool isLegible, bool isValidChecksum)
     {
         public AccountStatus(AccountNumber Accountnumber) : this(Accountnumber, false, false) { }
