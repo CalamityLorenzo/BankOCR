@@ -1,95 +1,96 @@
-using BankOCR;
-using System.Formats.Tar;
+﻿using BankOCR;
+using System.Runtime.CompilerServices;
 
 namespace BankOCRTests
 {
     [TestClass]
     public class UserStories
     {
-        [TestMethod("User Story 1: Read OCR File")]
-        public void ReadFile()
-        {
-            var fileName = "OcrFile.txt";
-            OcrProcessor processor = new OcrProcessor();
-            var result = processor.ParseFile(fileName).ToList();
 
-            Assert.IsTrue(result.Count == 14);
-            Assert.IsTrue(result[0].Length == 27 * 3);
-            Assert.IsTrue(result[1] == " _  _  _  _  _  _  _  _  _ |_ |_ |_ |_ |_ |_ |_ |_ |_  _| _| _| _| _| _| _| _| _|");
+        [TestMethod]
+        public void UserStory1()
+        {
+            string[] accountNumbers = ["000000000", "111111111", "222222222", "333333333", "444444444", "555555555", "666666666", "777777777","888888888", "999999999", "123456789"];
+
+            string fileName = "UserStory1.txt";
+            OcrProcessor processor = new OcrProcessor();
+            var accountOcrDigits = processor.ParseFile(fileName).ToList();
+            var accounts = processor.TranslateOcrAccountNumbers(accountOcrDigits);
+            for(var x =0;x<accountNumbers.Length;x++)
+            {
+                Assert.IsTrue(accountNumbers[x] == accounts[x].Number);
+            }
+
         }
 
-        [DataTestMethod]
-        [TestMethod("USer Story 1: Read digits into numbers")]
-        [DataRow("    _  _     _  _  _  _  _   | _| _||_||_ |_   ||_||_|  ||_  _|  | _||_|  ||_| _|", "123456789")]
-        [DataRow(" _  _  _  _  _  _  _  _  _ |_ |_ |_ |_ |_ |_ |_ |_ |_  _| _| _| _| _| _| _| _| _|", "555555555")]
-        [DataRow(" _  _  _  _  _  _  _  _    | || || || || || || ||_   ||_||_||_||_||_||_||_| _|  |", "000000051")]
-        public void ReadOCRDigits(string digitRow, string result)
-        {
-            OcrProcessor processor = new OcrProcessor();
-            var digits = processor.TranslateOcrAccountNumber(digitRow);
-
-            Assert.IsTrue(digits.Number == result);
-        }
-
-        [DataTestMethod]
-        [DataRow("345882865", true)]
-        [DataRow("000000302", true)]
-        [DataRow("145882865", false)]
+            [DataTestMethod]
         [DataRow("711111111", true)]
         [DataRow("123456789", true)]
         [DataRow("490867715", true)]
         [DataRow("888888888", false)]
         [DataRow("490067715", false)]
         [DataRow("012345678", false)]
-        public void TestChecksum(string accountNumber, bool isSuccess)
+        public void UserStory2(string input, bool isValid)
         {
+            //string fileName = "UserStory3.txt";
             OcrProcessor processor = new OcrProcessor();
-            var result = processor.ValidAccountChecksum(accountNumber);
-            Assert.IsTrue(isSuccess == result);
+            Assert.IsTrue(processor.ValidAccountChecksum(input) == isValid);
+        }
+        [DataTestMethod]
+        [DataRow(" _  _  _  _  _  _  _  _    | || || || || || || ||_   ||_||_||_||_||_||_||_| _|  |", "000000051")]
+        [DataRow("    _  _  _  _  _  _     _ |_||_|| || ||_   |  |  | _   | _||_||_||_|  |  |  | _|", "49006771? ILL")]
+        [DataRow("    _  _     _  _  _  _  _   | _| _||_| _ |_   ||_||_|  ||_  _|  | _||_|  ||_| _ ", "1234?678? ILL")]
+        public void UserStory3_ValidAccount(string input, string result)
+        {
+            //string fileName = "UserStory3.txt";
+            OcrProcessor processor = new OcrProcessor();
+            //var accountOcrDigits = processor.ParseFile(fileName).ToList();
+            var accounts = processor.TranslateOcrAccountNumbers(new List<String>() { input });
+            var validatedAccounts = processor.ValidateAccounts(accounts);
+            Assert.IsTrue(validatedAccounts[0].ToString() == result);
         }
 
 
         [DataTestMethod]
-        [DataRow("345882865", "345882865")]
-        [DataRow("000000302", "000000302")]
-        [DataRow("145882865", "145882865 ERR")]
-        [DataRow("711111111", "711111111")]
-        [DataRow("123456789", "123456789")]
-        [DataRow("49086??15", "49086??15 ILL")]
-        [DataRow("88888?888", "88888?888 ILL")]
-        [DataRow("490067715", "490067715 ERR")]
-        [DataRow("012345678", "012345678 ERR")]
-        public void WritevalidatedAccountInfo(string accountNo, string expected)
+        public void UserStory3_SaveResults()
         {
-            var accountNumber = new AccountNumber(accountNo, Enumerable.Empty<String>());
+            var inputFilename = "UserStory3.txt";
+            var outputFilename = "UserStory3_output.txt";
             OcrProcessor processor = new OcrProcessor();
-            var result = processor.ValidateAccount(accountNumber)!;
-            Assert.IsTrue(result.ToString() == expected);
+            var accountOcrDigits = processor.ParseFile(inputFilename);
+            var accounts = processor.TranslateOcrAccountNumbers(accountOcrDigits);
+            //var validatedAccounts = processor.ValidateAccounts(accounts);
+            processor.ValidateAccountsToFile(accounts, outputFilename);
+
+            var allEntries = File.ReadAllLines(outputFilename);
+            Assert.IsTrue(allEntries.Length == 3);
+            Assert.IsTrue(allEntries[0] == "000000051");
+            Assert.IsTrue(allEntries[1] == "49006771? ILL");
+            Assert.IsTrue(allEntries[2] == "1234?678? ILL");
         }
 
         [DataTestMethod]
-        [DataRow("    _|  |", "4,1")]
-        [DataRow(" _  _  _|", "5,3")]
-        [DataRow(" _ |_|  |", "4,9")]
-        [DataRow("    _||_ ", "2")]
-        [DataRow(" _ |_|| |", "8")]
-        public void RepairDigits(string ocrDigit, string result)
+        public void UserStory4()
         {
-
+            string fileName = "UserStory4.txt";
             OcrProcessor processor = new OcrProcessor();
-            var items = processor.RepairDigit(ocrDigit);
-            var itemNumberString = String.Join(",", items.Select(a => a.number));
-            Assert.IsTrue(itemNumberString == result);
-        }
-        [DataTestMethod]
-        [DataRow("    _  _     _  _  _  _  _   | _| _||_||_ |_   ||_||_|  ||_  _|  | _||_|  ||_| _ ", "")]
-        public void ValidateAndRepairOcr(string ocrDigits, string result)
-        {
-            OcrProcessor processor = new OcrProcessor();
-            var accountNumber = processor.TranslateOcrAccountNumber(ocrDigits);
-            var accountStatus = processor.ValidateAccount(accountNumber);
-            processor.RepairAccount(accountStatus);
+            var accountOcrDigits = processor.ParseFile(fileName).ToList();
+            var accounts = processor.TranslateOcrAccountNumbers(accountOcrDigits);
+            var validatedAccounts = processor.ValidateAccounts(accounts);
 
+            var results = processor.RepairAccounts(validatedAccounts);
+            Assert.IsTrue(results[0] == "711111111");
+            Assert.IsTrue(results[1] == "777777177");
+            Assert.IsTrue(results[2] == "200800000");
+            Assert.IsTrue(results[3] == "333393333");
+            Assert.IsTrue(results[4] == "888888888 AMB ['888886888', '888888880', '888888988']");
+            Assert.IsTrue(results[5] == "555555555 AMB ['555655555', '559555555']");
+            Assert.IsTrue(results[6] == "666666666 AMB ['666566666', '686666666']");
+            Assert.IsTrue(results[7] == "999999999 AMB ['899999999', '993999999', '999959999']");
+            Assert.IsTrue(results[8] == "490067715 AMB ['490067115', '490067719', '490867715']");
+            Assert.IsTrue(results[9] == "123456789");
+            Assert.IsTrue(results[10] == "000000051");
+            Assert.IsTrue(results[11] == "490867715");
         }
     }
 }

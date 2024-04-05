@@ -119,16 +119,14 @@ namespace BankOCR
 
             return new AccountNumber(accountNumber.ToString(), ocrDigits);
         }
+        public List<AccountNumber> TranslateOcrAccountNumbers(IEnumerable<string> accountOcrs) => accountOcrs.Select(a => TranslateOcrAccountNumber(a)).ToList();
 
         public void ValidateAccountsToFile(IEnumerable<AccountNumber> accountNumbers, string filename)
         {
             if (string.IsNullOrEmpty(filename))
                 throw new ArgumentNullException($"Filename cannot be null");
             var result = new List<AccountStatus>();
-            foreach (var accountNumber in accountNumbers)
-            {
-                result.Add(ValidateAccount(accountNumber));
-            }
+            result.AddRange(ValidateAccounts(accountNumbers));
             File.WriteAllLines(filename, result.Select(a => a.ToString()));
         }
 
@@ -168,7 +166,13 @@ namespace BankOCR
         }
 
         // Check to See if the number is illegible or the Checksum value is incorrect.
-        public AccountStatus ValidateAccount(AccountNumber accountNumber) => new(accountNumber, !accountNumber.Number.Contains("?"), ValidAccountChecksum(accountNumber.Number));
+        public List<AccountStatus> ValidateAccounts(IEnumerable<AccountNumber> accounts)
+        {
+            var result = new List<AccountStatus>();
+            foreach (var accountNumber in accounts)
+                result.Add(new(accountNumber, !accountNumber.Number.Contains("?"), ValidAccountChecksum(accountNumber.Number)));
+            return result;
+        }
 
 
         /// <summary>
@@ -227,24 +231,89 @@ namespace BankOCR
                 };
         }
 
-        public void RepairAccount(AccountStatus accountStatus)
+        public string RepairAccount(AccountStatus accountStatus)
         {
             if (!accountStatus.isLegible)
             {
-
-                var fixedNUmbers = new List<(string,string, int)>();
-                // Find the illegible numbers and their positions in the original
-                var accountNumChars = accountStatus.Accountnumber.Number.ToCharArray();
-                for (var x = 0; x < accountNumChars.Length; x++)
-                {
-                    if (accountNumChars[x] == '?')
-                    {
-                        var result = RepairDigit(accountStatus.Accountnumber.OcrDigits[x]);
-                        fixedNUmbers.AddRange(result.Select(a => (a.number, a.digit, x)).ToList()); ;
-                    }
-                }
-
+                return RepairIllegible(accountStatus);
             }
+            else if (!accountStatus.isValidChecksum)
+            {
+                return RepairChecksum(accountStatus);
+            }
+
+            return accountStatus.Accountnumber.Number;
+        }
+
+        private string RepairIllegible(AccountStatus account)
+        {
+            // Iterate and find the illegal char '?'
+            // Find the illegible numbers and their positions in the original
+            var validChecksums = new List<String>();
+            var accountNumChars = account.Accountnumber.Number.ToCharArray();
+            for (var x = 0; x < account.Accountnumber.Number.Length; x++)
+            {
+                if (accountNumChars[x] == '?')
+                {
+                    var repairedDigits = RepairDigit(account.Accountnumber.OcrDigits[x]);
+                    validChecksums.AddRange(RepairedValidation(account, repairedDigits, x));
+                }
+            }
+            return FormatRepairedCheckSum(validChecksums, account.Accountnumber.Number);
+
+        }
+
+        private string RepairChecksum(AccountStatus account)
+        {
+
+            // Iterate each digit in the account, run the repair digit on the original ocr source.
+            // Then try to validate it.
+            // Store each correct validation
+            var validChecksums = new List<String>();
+            for (var x = 0; x < account.Accountnumber.Number.Length; x++)
+            {
+                // We can get multiple 'fixes' back from repairing a digit.
+                var repairedDigits = this.RepairDigit(account.Accountnumber.OcrDigits[x]);
+                validChecksums.AddRange(RepairedValidation(account, repairedDigits, x));
+            }
+            // return back a string with the details of the results.
+            return FormatRepairedCheckSum(validChecksums, account.Accountnumber.Number);
+        }
+        // FOrmat the output from repairing Accounts to ensure it replicates the kata
+        // Note the order clause, this is a subtle indication that userstory4 is reallly mean.
+        private string FormatRepairedCheckSum(List<string> validChecksums, string accountNumber)
+        {
+            if(validChecksums.Count==1) { return validChecksums[0]; }
+            else
+            {
+                return $"{accountNumber} AMB ['{String.Join("', '", validChecksums.Order())}']";
+            }
+        }
+
+        private IEnumerable<String> RepairedValidation(AccountStatus account, IEnumerable<(string number, string ocrDigi)> repairedDigits, int digitIndex)
+        {
+            var validChecksums = new List<String>();
+            foreach (var digit in repairedDigits)
+            {
+                var accountNumber = account.Accountnumber.Number.Remove(digitIndex, 1).Insert(digitIndex, digit.number);
+                if (this.ValidAccountChecksum(accountNumber))
+                {
+                    validChecksums.Add(accountNumber);
+                }
+            }
+
+            return validChecksums;
+        }
+
+        public List<String> RepairAccounts(IEnumerable<AccountStatus> accountStatuses)
+        {
+            List<String> results = new();
+            foreach (var status in accountStatuses)
+            {
+                results.Add(RepairAccount(status));
+            }
+
+            return results;
         }
     };
 
